@@ -9,34 +9,33 @@ declare_id!("2Q16CbW78EsUpmAkizJJkMVaeCG9QtvD9CjBwVBZcoCv");
 
 #[program]
 pub mod bluescrypto_staking {
+    use std::borrow::Borrow;
+
     use super::*;
 
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
         let package_a = Package {
             name: String::from("BLUES Pebble Pounch"),
             max_deposit_amount: 100000000,
+            total_locked_amount: 0,
             apr: 20,
-            period: 60 * 60 * 24 * 30,
-            slot_limit: 80,
-            slot_count: 0
+            period: 60 * 60 * 24 * 30
         };
 
         let package_b = Package {
             name: String::from("Blue Wheel Guild"),
             max_deposit_amount: 75000000,
+            total_locked_amount: 0,
             apr: 30,
-            period: 60 * 60 * 24 * 30 * 2,
-            slot_limit: 70,
-            slot_count: 0
+            period: 60 * 60 * 24 * 30 * 2
         };
 
         let package_c = Package {
             name: String::from("Burrower's Bounty"),
             max_deposit_amount: 50000000,
+            total_locked_amount: 0,
             apr: 45,
-            period: 60 * 60 * 24 * 30 * 3,
-            slot_limit: 60,
-            slot_count: 0
+            period: 60 * 60 * 24 * 30 * 3
         };
 
         let staking_storage = &mut ctx.accounts.staking_storage;
@@ -63,23 +62,8 @@ pub mod bluescrypto_staking {
             return Err(ErrorCode::InvalidPackageIndex.into());
         }
 
-        // check if user already have stake on same package
-        for stake_log in  staking_storage.stake_logs.iter() {
-            if stake_log.staker == ctx.accounts.from.to_account_info().key() && package_index == stake_log.package_index && stake_log.terminated == false {
-                return Err(ErrorCode::AccountAlreadyStaked.into());
-            }
-            else {
-                continue;
-            }
-        }
-
-        // check if package slot fulfilled
-        if package.slot_count == package.slot_limit {
-            return Err(ErrorCode::PackageSlotFulFilled.into());
-        }
-
         // check if deposit amount is valid
-        if deposit_amount > package.max_deposit_amount {
+        if (package.total_locked_amount + deposit_amount) > package.max_deposit_amount {
             return Err(ErrorCode::InvalidDepositAmount.into());
         }
 
@@ -89,68 +73,60 @@ pub mod bluescrypto_staking {
 
         token::transfer(cpi_ctx, deposit_amount)?;
 
+        // update package status
+        staking_storage.packages[package_index as usize].total_locked_amount = package.total_locked_amount + deposit_amount;
+
         // update stake log
         let clock = Clock::get();
         let timestamp = clock.unwrap().unix_timestamp;
 
         let stake_log = StakeLog {
+            id: staking_storage.stake_logs.len() as u8,
             staker: ctx.accounts.from.to_account_info().key(),
             package_index: package_index,
+            stake_amount: deposit_amount,
             stake_timestamp: timestamp,
             terminated: false
         };
 
         staking_storage.stake_logs.push(stake_log);
 
-        // update package state
-        let slot_count = staking_storage.packages[package_index as usize].slot_count;
-        staking_storage.packages[package_index as usize].slot_count = slot_count + 1;
-
         Ok(())
     }
 
-    pub fn withdraw(ctx: Context<Withdraw>, escrow_bump: u8, package_index: u8) -> Result<()> {
+    pub fn withdraw(ctx: Context<Withdraw>, escrow_bump: u8, stake_id: u8) -> Result<()> {
         // validate package index
         let packages = & ctx.accounts.staking_storage.packages;
 
-        if package_index >= packages.len() as u8{
-            return Err(ErrorCode::InvalidPackageIndex.into());
-        }
-
         // check if user is valid staker and time lock
         let stake_logs = & ctx.accounts.staking_storage.stake_logs;
-        let mut is_valid_staker = false;
-        let mut active_stake_log: &StakeLog;
-        let mut log_index: usize = 0;
-        for stake_log in  stake_logs.iter() {
-            if stake_log.staker == ctx.accounts.to.to_account_info().key() && package_index == stake_log.package_index {
-                is_valid_staker = true;
-                active_stake_log = stake_log;
 
-                log_index = stake_logs.iter().position(|x| x.package_index == stake_log.package_index && x.staker == stake_log.staker).unwrap_or(0) as usize;
+        if stake_id >= stake_logs.len() as u8 {
+            return Err(ErrorCode::NonExistStake.into());
+        }
 
-                // check if active stake
-                if stake_log.terminated == true {
-                    return Err(ErrorCode::StakeAlreadyTerminated.into());
-                }
+        let stake_log = &stake_logs[stake_id as usize];
 
-                // check time lock
-                let clock = Clock::get();
-                let timestamp = clock.unwrap().unix_timestamp;
-                let expected_timestamp = active_stake_log.stake_timestamp + packages[package_index as usize].period;
-            
-                if expected_timestamp > timestamp {
-                    return Err(ErrorCode::InvalidLockTime.into());
-                }
+        if stake_log.staker == ctx.accounts.to.to_account_info().key() {
+            // check if active stake
+            if stake_log.terminated == true {
+                return Err(ErrorCode::StakeAlreadyTerminated.into());
             }
-            else {
-                continue;
+
+            // check time lock
+            let clock = Clock::get();
+            let timestamp = clock.unwrap().unix_timestamp;
+            let expected_timestamp = stake_log.stake_timestamp + packages[stake_log.package_index as usize].period;
+        
+            if expected_timestamp > timestamp {
+                return Err(ErrorCode::InvalidLockTime.into());
             }
         }
-        if is_valid_staker == false {
+        else {
             return Err(ErrorCode::AccountNeverStaked.into());
         }
 
+        // create/configure withdraw transaction
         let mint_key = &mut ctx.accounts.mint.key();
         let seeds = &["escrow_vault".as_bytes(), mint_key.as_ref(), &[escrow_bump]];
         let signer_seeds = &[&seeds[..]];
@@ -162,7 +138,8 @@ pub mod bluescrypto_staking {
         };
 
         // start main withdraw/reward process - deposit token
-        let withdraw_amount = ctx.accounts.staking_storage.packages[package_index as usize].apr;
+        let reward_amount = stake_log.stake_amount / 100 * packages[stake_log.package_index as usize].apr;
+        let withdraw_amount = stake_log.stake_amount + reward_amount;
 
         let cpi_program = ctx.accounts.token_program.to_account_info();
 
@@ -172,7 +149,7 @@ pub mod bluescrypto_staking {
 
         // update stake log
         let staking_storage = &mut ctx.accounts.staking_storage;
-        staking_storage.stake_logs[log_index].terminated = true;
+        staking_storage.stake_logs[stake_id as usize].terminated = true;
 
         Ok(())
     }
@@ -190,6 +167,17 @@ pub mod bluescrypto_staking {
 
         token::transfer(cpi_ctx, deposit_amount)?;
         Ok(())
+    }
+
+    // get staking storage data
+    pub fn get_staking_storage(ctx: Context<GetStakingStorage>) -> Result<StakingStorage> {
+        let staking_storage = &ctx.accounts.staking_storage;
+        let data = StakingStorage {
+            packages: staking_storage.packages.clone(),
+            stake_logs: staking_storage.stake_logs.clone()
+        };
+
+        Ok(data)
     }
 }
 
@@ -310,10 +298,9 @@ pub struct Withdraw<'info> {
 pub struct Package {
     pub name: String,
     pub max_deposit_amount: u64,
+    pub total_locked_amount: u64,
     pub period: i64,
-    pub apr: u64,
-    pub slot_limit: u8,
-    pub slot_count: u8
+    pub apr: u64
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -325,9 +312,10 @@ pub struct UltimatePackage {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct StakeLog {
+    pub id: u8,
     pub staker: Pubkey,
     pub package_index: u8,
-
+    pub stake_amount: u64,
     // #[account(address = solana_program::sysvar::clock::ID)]
     pub stake_timestamp: i64,
     pub terminated: bool
@@ -336,32 +324,27 @@ pub struct StakeLog {
 #[account]
 pub struct StakingStorage {
     packages: Vec<Package>,
-    stake_logs: Vec<StakeLog>,
-    ultimate_package: UltimatePackage
+    stake_logs: Vec<StakeLog>
 }
 
 #[derive(Accounts)]
-pub struct SetStakingStorage<'info> {
+pub struct GetStakingStorage<'info> {
     #[account(mut, seeds = [], bump)]
     pub staking_storage: Account<'info, StakingStorage>,
 }
 
 #[error_code]
 pub enum ErrorCode {
-    #[msg("Invalid package index. It must be 0 ~ 5")]
+    #[msg("Invalid package index. It must be 0 ~ 2")]
     InvalidPackageIndex,
+    #[msg("Stake does not exist")]
+    NonExistStake,
     #[msg("Invalid deposit amount. Deposit amount over the maximum allowed")]
     InvalidDepositAmount,
-    #[msg("Account already staked on same package")]
-    AccountAlreadyStaked,
-    #[msg("Package slot fulfilled")]
-    PackageSlotFulFilled,
     #[msg("Account never staked")]
     AccountNeverStaked,
     #[msg("Lock time period is not satisfied")]
     InvalidLockTime,
     #[msg("Stake already terminated")]
-    StakeAlreadyTerminated,
-    #[msg("Limited staking is still available")]
-    UltimateStakingNotAvailable
+    StakeAlreadyTerminated
 }

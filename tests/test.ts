@@ -1,4 +1,5 @@
 import * as anchor from "@coral-xyz/anchor";
+import * as borsh from "@coral-xyz/borsh"
 import { Program } from "@coral-xyz/anchor";
 import {
     TOKEN_PROGRAM_ID,
@@ -10,7 +11,8 @@ import {
     createApproveInstruction,
     getOrCreateAssociatedTokenAccount,
     approve,
-    transfer
+    transfer,
+    Account,
 } from "@solana/spl-token"
 import { assert } from "chai";
 import base58 from "bs58";
@@ -31,10 +33,19 @@ describe("bluescrypto-staking", () => {
     const staking_contract_address = new anchor.web3.PublicKey("2Q16CbW78EsUpmAkizJJkMVaeCG9QtvD9CjBwVBZcoCv")
     
     let associated_token_account = undefined
+    
+    const key = anchor.AnchorProvider.env().wallet.publicKey;
+
+    let fromTokenAccount: Account;
+    let toTokenAccount: Account;
+
+    const [ stakingStorage, stakingStorageBump ] = anchor.web3.PublicKey.findProgramAddressSync([], staking_contract_address)
+    const [ escrowVault, escroVaultBump ] = anchor.web3.PublicKey.findProgramAddressSync([
+            Buffer.from("escrow_vault"),
+            mintKey.publicKey.toBuffer()
+        ], staking_contract_address)
 
     it("Mint token", async () => {
-        const key = anchor.AnchorProvider.env().wallet.publicKey;
-
         const lamports = await token_program.provider.connection.getMinimumBalanceForRentExemption(
             MINT_SIZE
         )
@@ -63,14 +74,7 @@ describe("bluescrypto-staking", () => {
 
         const res = await anchor.AnchorProvider.env().sendAndConfirm(mint_tx, [mintKey]);
 
-        console.log(
-            await token_program.provider.connection.getParsedAccountInfo(mintKey.publicKey)
-        );
-      
-        console.log("Account: ", res);
-        console.log("Mint key: ", mintKey.publicKey.toString());
         console.log("User: ", key.toString());
-
 
         // Executes our code to mint our token into our specified ATA
         await token_program.methods.mintToken().accounts({
@@ -85,18 +89,14 @@ describe("bluescrypto-staking", () => {
         
         const owner_balance = await getBalance(key, mintKey.publicKey)
 
-        console.log("owner balance:", owner_balance)
-
-        return
-
-        const fromTokenAccount = await getOrCreateAssociatedTokenAccount(
+        fromTokenAccount = await getOrCreateAssociatedTokenAccount(
             anchor.AnchorProvider.env().connection,
             anchor.Wallet.local().payer,
             mintKey.publicKey,
             key
         )
 
-        const toTokenAccount = await getOrCreateAssociatedTokenAccount(
+        toTokenAccount = await getOrCreateAssociatedTokenAccount(
             anchor.AnchorProvider.env().connection,
             anchor.Wallet.local().payer,
             mintKey.publicKey,
@@ -109,19 +109,15 @@ describe("bluescrypto-staking", () => {
             mintKey.publicKey,
             staking_contract_address
         )
+    })
 
-        const [ stakingStorage, stakingStorageBump ] = anchor.web3.PublicKey.findProgramAddressSync([], staking_contract_address)
-        let [ escrowVault, escroVaultBump ] = anchor.web3.PublicKey.findProgramAddressSync([
-            Buffer.from("escrow_vault"),
-            mintKey.publicKey.toBuffer()
-        ], staking_contract_address)
-
+    it("Charge Escrow", async () => {
         await staking_program.methods.initialize().accounts({ 
             stakingStorage,
             escrowVault,
             mint: mintKey.publicKey
         }).rpc()
-        
+
         await staking_program.methods.chargeEscrow(new anchor.BN(1000000)).accounts({
             from: fromTokenAccount.address,
             authority: key,
@@ -129,8 +125,10 @@ describe("bluescrypto-staking", () => {
             escrowVault,
             mint: mintKey.publicKey
         }).rpc()
+    })
 
-        await staking_program.methods.stake(0, 0).accounts({
+    it("Stake", async () => {
+        await staking_program.methods.stake(0, new anchor.BN(100)).accounts({
             from: fromTokenAccount.address,
             authority: key,
             tokenProgram: TOKEN_PROGRAM_ID,
@@ -139,7 +137,7 @@ describe("bluescrypto-staking", () => {
             mint: mintKey.publicKey
         }).rpc()
 
-        await staking_program.methods.stake(1, 0).accounts({
+        await staking_program.methods.stake(0, new anchor.BN(100)).accounts({
             from: fromTokenAccount.address,
             authority: key,
             tokenProgram: TOKEN_PROGRAM_ID,
@@ -152,8 +150,17 @@ describe("bluescrypto-staking", () => {
         console.log("owner balance after stake:", owner_balance_after_transfer)
 
         const staking_contract_balance_after_stake = await getBalance(escrowVault, mintKey.publicKey)
-        console.log("escrow balance after stakke:", staking_contract_balance_after_stake)
+        console.log("escrow balance after stake:", staking_contract_balance_after_stake)
 
+    })
+
+    it("Access staking storage", async () => {
+        const data = await staking_program.account.stakingStorage.all()
+
+        console.log(data[0].account.packages)
+    })
+
+    it("Withdraw", async () => {
         await staking_program.methods.withdraw(escroVaultBump, 0).accounts({
             to: fromTokenAccount.address,
             tokenProgram: TOKEN_PROGRAM_ID,
@@ -172,31 +179,13 @@ describe("bluescrypto-staking", () => {
             authority: key
         }).rpc()
 
-        // await staking_program.methods.stakeUltimate(new anchor.BN(1000)).accounts({
-        //     from: fromTokenAccount.address,
-        //     authority: key,
-        //     tokenProgram: TOKEN_PROGRAM_ID,
-        //     stakingStorage,
-        //     escrowVault,
-        //     mint: mintKey.publicKey
-        // }).rpc()
-
-        // await staking_program.methods.withdrawUltimate(escroVaultBump).accounts({
-        //     to: fromTokenAccount.address,
-        //     tokenProgram: TOKEN_PROGRAM_ID,
-        //     stakingStorage,
-        //     escrowVault,
-        //     mint: mintKey.publicKey,
-        //     authority: key
-        // }).rpc()
-
         const owner_balance_after_withdraw = await getBalance(key, mintKey.publicKey)
         console.log("owner balance after withdraw:", owner_balance_after_withdraw)
 
         const staking_contract_balance_after_withdraw = await getBalance(escrowVault, mintKey.publicKey)
         console.log("escrow balance after withdraw:", staking_contract_balance_after_withdraw)
 
-        const stored_data = await staking_program.account.stakingStorage.fetch(stakingStorage)
+        // const stored_data = await staking_program.account.stakingStorage.fetch(stakingStorage)
     })
 });
 
