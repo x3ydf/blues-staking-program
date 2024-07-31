@@ -36,6 +36,8 @@ describe("bluescrypto-staking", () => {
     
     const key = anchor.AnchorProvider.env().wallet.publicKey;
 
+    console.log("User: ", key.toString());
+
     let fromTokenAccount: Account;
     let toTokenAccount: Account;
 
@@ -73,8 +75,6 @@ describe("bluescrypto-staking", () => {
         );
 
         const res = await anchor.AnchorProvider.env().sendAndConfirm(mint_tx, [mintKey]);
-
-        console.log("User: ", key.toString());
 
         // Executes our code to mint our token into our specified ATA
         await token_program.methods.mintToken().accounts({
@@ -137,7 +137,16 @@ describe("bluescrypto-staking", () => {
             mint: mintKey.publicKey
         }).rpc()
 
-        await staking_program.methods.stake(0, new anchor.BN(100)).accounts({
+        await staking_program.methods.stake(1, new anchor.BN(100)).accounts({
+            from: fromTokenAccount.address,
+            authority: key,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            stakingStorage,
+            escrowVault,
+            mint: mintKey.publicKey
+        }).rpc()
+
+        await staking_program.methods.stake(2, new anchor.BN(100)).accounts({
             from: fromTokenAccount.address,
             authority: key,
             tokenProgram: TOKEN_PROGRAM_ID,
@@ -171,6 +180,15 @@ describe("bluescrypto-staking", () => {
         }).rpc()
 
         await staking_program.methods.withdraw(escroVaultBump, 1).accounts({
+            to: fromTokenAccount.address,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            stakingStorage,
+            escrowVault,
+            mint: mintKey.publicKey,
+            authority: key
+        }).rpc()
+
+        await staking_program.methods.withdraw(escroVaultBump, 2).accounts({
             to: fromTokenAccount.address,
             tokenProgram: TOKEN_PROGRAM_ID,
             stakingStorage,

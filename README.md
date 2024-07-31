@@ -15,6 +15,7 @@
 ### `solana-program: 1.16`
 
 ## NPM & Yarn dependency version requirement
+### `@solana/web3.js: 1.95.0`
 ### `@solana/spl-token: 0.4.6`
 ### `bs58: ^5.0.0`
 ### `ts-node: ^10.9.2`
@@ -47,3 +48,6 @@ solana config get
 #### Install Anchor
 `avm install 0.29.0`
 `avm use 0.29.0`
+
+## Deployed address (Devnet)
+#### bluescrypto_staking : `2XzGonB3VWc7KnGdUdU5TM7sH9kSr5PueVLc6isXTSDD`

@@ -9,8 +9,6 @@ declare_id!("2Q16CbW78EsUpmAkizJJkMVaeCG9QtvD9CjBwVBZcoCv");
 
 #[program]
 pub mod bluescrypto_staking {
-    use std::borrow::Borrow;
-
     use super::*;
 
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
@@ -47,25 +45,26 @@ pub mod bluescrypto_staking {
     }
 
     pub fn stake(ctx: Context<Deposit>, package_index: u8, deposit_amount: u64) -> Result<()> {
-        let transfer_instruction = Transfer{
-            from: ctx.accounts.from.to_account_info(),
-            to: ctx.accounts.escrow_vault.to_account_info(),
-            authority: ctx.accounts.authority.to_account_info(),
-        };
-        
         let staking_storage = &mut ctx.accounts.staking_storage;
         let packages = & staking_storage.packages;
-        let package = & packages[package_index as usize];
         
         // validate package index
         if package_index >= packages.len() as u8{
             return Err(ErrorCode::InvalidPackageIndex.into());
         }
 
+        let package = & packages[package_index as usize];
+
         // check if deposit amount is valid
         if (package.total_locked_amount + deposit_amount) > package.max_deposit_amount {
             return Err(ErrorCode::InvalidDepositAmount.into());
         }
+
+        let transfer_instruction = Transfer{
+            from: ctx.accounts.from.to_account_info(),
+            to: ctx.accounts.escrow_vault.to_account_info(),
+            authority: ctx.accounts.authority.to_account_info(),
+        };
 
         //start main staking process - deposit token
         let cpi_program = ctx.accounts.token_program.to_account_info();
@@ -289,9 +288,6 @@ pub struct Withdraw<'info> {
     pub mint: Account<'info, Mint>,
 
     pub system_program: Program<'info, System>,
-
-    // #[account(mut)]
-    // pub signer: Signer<'info>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]

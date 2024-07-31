@@ -8,11 +8,15 @@ skip-lint = false
 bluescrypto_staking = "2Q16CbW78EsUpmAkizJJkMVaeCG9QtvD9CjBwVBZcoCv"
 bluescoin = "FQ8uvnRBAMkbxHxZPboh2p5fgYnH4tBDFKSNbYjPY6ne"
 
+[programs.devnet]
+bluescrypto_staking = "2Q16CbW78EsUpmAkizJJkMVaeCG9QtvD9CjBwVBZcoCv"
+bluescoin = "FQ8uvnRBAMkbxHxZPboh2p5fgYnH4tBDFKSNbYjPY6ne"
+
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "Localnet"
+cluster = "devnet"
 wallet = "/home/leon/.config/solana/id.json"
 
 [scripts]
