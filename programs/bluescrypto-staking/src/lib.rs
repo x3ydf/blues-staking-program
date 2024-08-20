@@ -14,7 +14,7 @@ pub mod bluescrypto_staking {
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
         let package_a = Package {
             name: String::from("BLUES Pebble Pounch"),
-            max_deposit_amount: 100000000,
+            max_deposit_amount: 100000000 * 1_000_000_000,
             total_locked_amount: 0,
             apr: 20,
             period: 60 * 60 * 24 * 30
@@ -22,7 +22,7 @@ pub mod bluescrypto_staking {
 
         let package_b = Package {
             name: String::from("Blue Wheel Guild"),
-            max_deposit_amount: 75000000,
+            max_deposit_amount: 75000000 * 1_000_000_000,
             total_locked_amount: 0,
             apr: 30,
             period: 60 * 60 * 24 * 30 * 2
@@ -30,7 +30,7 @@ pub mod bluescrypto_staking {
 
         let package_c = Package {
             name: String::from("Burrower's Bounty"),
-            max_deposit_amount: 50000000,
+            max_deposit_amount: 50000000 * 1_000_000_000,
             total_locked_amount: 0,
             apr: 45,
             period: 60 * 60 * 24 * 30 * 3
