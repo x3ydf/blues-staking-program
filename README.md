@@ -51,3 +51,6 @@ solana config get
 
 ## Deployed address (Devnet)
 #### bluescrypto_staking : `2XzGonB3VWc7KnGdUdU5TM7sH9kSr5PueVLc6isXTSDD`
+
+## Deployed address (Mainnet)
+#### bluescrypto_staking : `GWNpsKtdNy9LEZ4P86VHXGB8d25voFYKQDyvVNMixPcP`

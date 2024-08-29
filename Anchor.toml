@@ -5,11 +5,11 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-bluescrypto_staking = "2Q16CbW78EsUpmAkizJJkMVaeCG9QtvD9CjBwVBZcoCv"
+bluescrypto_staking = "GWNpsKtdNy9LEZ4P86VHXGB8d25voFYKQDyvVNMixPcP"
 bluescoin = "FQ8uvnRBAMkbxHxZPboh2p5fgYnH4tBDFKSNbYjPY6ne"
 
 [programs.devnet]
-bluescrypto_staking = "2Q16CbW78EsUpmAkizJJkMVaeCG9QtvD9CjBwVBZcoCv"
+bluescrypto_staking = "GWNpsKtdNy9LEZ4P86VHXGB8d25voFYKQDyvVNMixPcP"
 bluescoin = "FQ8uvnRBAMkbxHxZPboh2p5fgYnH4tBDFKSNbYjPY6ne"
 
 [registry]

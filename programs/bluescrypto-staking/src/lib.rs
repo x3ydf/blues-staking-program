@@ -5,7 +5,7 @@ use solana_program::clock::Clock;
 use std::mem::size_of;
 use anchor_spl::token::{self, Mint, TokenAccount, Token, Transfer};
 
-declare_id!("2Q16CbW78EsUpmAkizJJkMVaeCG9QtvD9CjBwVBZcoCv");
+declare_id!("GWNpsKtdNy9LEZ4P86VHXGB8d25voFYKQDyvVNMixPcP");
 
 #[program]
 pub mod bluescrypto_staking {
@@ -17,7 +17,9 @@ pub mod bluescrypto_staking {
             max_deposit_amount: 100000000 * 1_000_000_000,
             total_locked_amount: 0,
             apr: 20,
-            period: 60 * 60 * 24 * 30
+            period: 60 * 60 * 24 * 30,
+            percentage: 164
+            // period: 60 * 3
         };
 
         let package_b = Package {
@@ -25,7 +27,9 @@ pub mod bluescrypto_staking {
             max_deposit_amount: 75000000 * 1_000_000_000,
             total_locked_amount: 0,
             apr: 30,
-            period: 60 * 60 * 24 * 30 * 2
+            period: 60 * 60 * 24 * 30 * 2,
+            percentage: 493
+            // period: 60 * 6
         };
 
         let package_c = Package {
@@ -33,7 +37,9 @@ pub mod bluescrypto_staking {
             max_deposit_amount: 50000000 * 1_000_000_000,
             total_locked_amount: 0,
             apr: 45,
-            period: 60 * 60 * 24 * 30 * 3
+            period: 60 * 60 * 24 * 30 * 3,
+            percentage: 1109
+            // period: 60 * 9
         };
 
         let staking_storage = &mut ctx.accounts.staking_storage;
@@ -41,11 +47,13 @@ pub mod bluescrypto_staking {
         staking_storage.packages.push(package_b);
         staking_storage.packages.push(package_c);
 
+        staking_storage.maintainer = *ctx.accounts.signer.key;
+
         Ok(())
     }
 
     pub fn stake(ctx: Context<Deposit>, package_index: u8, deposit_amount: u64) -> Result<()> {
-        let staking_storage = &mut ctx.accounts.staking_storage;
+        let staking_storage: &mut Account<StakingStorage> = &mut ctx.accounts.staking_storage;
         let packages = & staking_storage.packages;
         
         // validate package index
@@ -137,7 +145,7 @@ pub mod bluescrypto_staking {
         };
 
         // start main withdraw/reward process - deposit token
-        let reward_amount = stake_log.stake_amount / 100 * packages[stake_log.package_index as usize].apr;
+        let reward_amount = stake_log.stake_amount / 10000 * packages[stake_log.package_index as usize].percentage;
         let withdraw_amount = stake_log.stake_amount + reward_amount;
 
         let cpi_program = ctx.accounts.token_program.to_account_info();
@@ -168,15 +176,44 @@ pub mod bluescrypto_staking {
         Ok(())
     }
 
-    // get staking storage data
-    pub fn get_staking_storage(ctx: Context<GetStakingStorage>) -> Result<StakingStorage> {
-        let staking_storage = &ctx.accounts.staking_storage;
-        let data = StakingStorage {
-            packages: staking_storage.packages.clone(),
-            stake_logs: staking_storage.stake_logs.clone()
-        };
+    pub fn release_escrow(ctx: Context<EscrowRelease>, escrow_bump: u8, release_amount: u64) -> Result<()> {
+        let staking_storage = &mut ctx.accounts.staking_storage;
 
-        Ok(data)
+        if *ctx.accounts.signer.key == staking_storage.maintainer {
+            let mint_key = &mut ctx.accounts.mint.key();
+            let seeds = &["escrow_vault".as_bytes(), mint_key.as_ref(), &[escrow_bump]];
+            let signer_seeds = &[&seeds[..]];
+
+            let transfer_instruction = Transfer{
+                from: ctx.accounts.escrow_vault.to_account_info(),
+                to: ctx.accounts.to.to_account_info(),
+                authority: ctx.accounts.escrow_vault.to_account_info(),
+            };
+
+            let cpi_program = ctx.accounts.token_program.to_account_info();
+
+            let cpi_ctx = CpiContext::new_with_signer(cpi_program, transfer_instruction, signer_seeds);
+
+            token::transfer(cpi_ctx, release_amount)?;
+            Ok(())
+        }
+        else {
+            return Err(ErrorCode::NeedMaintainerRole.into());
+        }
+    }
+
+    pub fn change_percentage(ctx: Context<ChangePercentage>, package_index: u8, percentage: u64) -> Result<()> {
+        let staking_storage = &mut ctx.accounts.staking_storage;
+        if *ctx.accounts.signer.key == staking_storage.maintainer {
+    
+            staking_storage.packages[package_index as usize].percentage = percentage;
+    
+            Ok(())
+        }
+        else {
+            return Err(ErrorCode::NeedMaintainerRole.into());
+        }
+
     }
 }
 
@@ -196,12 +233,13 @@ pub struct Initialize<'info> {
 
     #[account(address = token::ID)]
     pub token_program: Program<'info, Token>,
-
-    #[account(init,
+    
+    #[account(
+        init,
         payer = signer,
         owner = token_program.key(),
         seeds = [b"escrow_vault".as_ref(), mint.key().as_ref()],
-        rent_exempt = enforce,
+        // rent_exempt = enforce,
         token::mint = mint,
         token::authority = escrow_vault,
         bump)]
@@ -266,6 +304,48 @@ pub struct EscrowCharge<'info> {
 }
 
 #[derive(Accounts)]
+pub struct EscrowRelease<'info> {
+    #[account(address = token::ID)]
+    pub token_program: Program<'info, Token>,
+
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    #[account(mut)]
+    pub to: UncheckedAccount<'info>,
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    // #[account(mut)]
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(mut)]
+    pub signer: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+
+    #[account(mut, seeds = [], bump)]
+    pub staking_storage: Account<'info, StakingStorage>,
+
+    #[account(mut,
+        seeds = [b"escrow_vault".as_ref(), mint.key().as_ref()],
+        bump)]
+    pub escrow_vault: Account<'info, TokenAccount>,
+        
+    /// Token mint.
+    pub mint: Account<'info, Mint>,
+}
+
+#[derive(Accounts)]
+pub struct ChangePercentage<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(mut)]
+    pub signer: Signer<'info>,
+
+    #[account(mut, seeds = [], bump)]
+    pub staking_storage: Account<'info, StakingStorage>,
+}
+
+#[derive(Accounts)]
 pub struct Withdraw<'info> {
     pub token_program: Program<'info, Token>,
 
@@ -296,14 +376,8 @@ pub struct Package {
     pub max_deposit_amount: u64,
     pub total_locked_amount: u64,
     pub period: i64,
-    pub apr: u64
-}
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
-pub struct UltimatePackage {
-    pub name: String,
-    pub apy: u64,
-    pub period: i64
+    pub apr: u64,
+    pub percentage: u64
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -320,13 +394,8 @@ pub struct StakeLog {
 #[account]
 pub struct StakingStorage {
     packages: Vec<Package>,
-    stake_logs: Vec<StakeLog>
-}
-
-#[derive(Accounts)]
-pub struct GetStakingStorage<'info> {
-    #[account(mut, seeds = [], bump)]
-    pub staking_storage: Account<'info, StakingStorage>,
+    stake_logs: Vec<StakeLog>,
+    maintainer: Pubkey
 }
 
 #[error_code]
@@ -342,5 +411,7 @@ pub enum ErrorCode {
     #[msg("Lock time period is not satisfied")]
     InvalidLockTime,
     #[msg("Stake already terminated")]
-    StakeAlreadyTerminated
+    StakeAlreadyTerminated,
+    #[msg("Need Maintainer Role for this action")]
+    NeedMaintainerRole
 }
