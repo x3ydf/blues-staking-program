@@ -176,32 +176,6 @@ pub mod bluescrypto_staking {
         Ok(())
     }
 
-    pub fn release_escrow(ctx: Context<EscrowRelease>, escrow_bump: u8, release_amount: u64) -> Result<()> {
-        let staking_storage = &mut ctx.accounts.staking_storage;
-
-        if *ctx.accounts.signer.key == staking_storage.maintainer {
-            let mint_key = &mut ctx.accounts.mint.key();
-            let seeds = &["escrow_vault".as_bytes(), mint_key.as_ref(), &[escrow_bump]];
-            let signer_seeds = &[&seeds[..]];
-
-            let transfer_instruction = Transfer{
-                from: ctx.accounts.escrow_vault.to_account_info(),
-                to: ctx.accounts.to.to_account_info(),
-                authority: ctx.accounts.escrow_vault.to_account_info(),
-            };
-
-            let cpi_program = ctx.accounts.token_program.to_account_info();
-
-            let cpi_ctx = CpiContext::new_with_signer(cpi_program, transfer_instruction, signer_seeds);
-
-            token::transfer(cpi_ctx, release_amount)?;
-            Ok(())
-        }
-        else {
-            return Err(ErrorCode::NeedMaintainerRole.into());
-        }
-    }
-
     pub fn change_percentage(ctx: Context<ChangePercentage>, package_index: u8, percentage: u64) -> Result<()> {
         let staking_storage = &mut ctx.accounts.staking_storage;
         if *ctx.accounts.signer.key == staking_storage.maintainer {
@@ -293,36 +267,6 @@ pub struct EscrowCharge<'info> {
     pub authority: Signer<'info>,
 
     pub system_program: Program<'info, System>,
-
-    #[account(mut,
-        seeds = [b"escrow_vault".as_ref(), mint.key().as_ref()],
-        bump)]
-    pub escrow_vault: Account<'info, TokenAccount>,
-        
-    /// Token mint.
-    pub mint: Account<'info, Mint>,
-}
-
-#[derive(Accounts)]
-pub struct EscrowRelease<'info> {
-    #[account(address = token::ID)]
-    pub token_program: Program<'info, Token>,
-
-    /// CHECK: This is not dangerous because we don't read or write from this account
-    #[account(mut)]
-    pub to: UncheckedAccount<'info>,
-    /// CHECK: This is not dangerous because we don't read or write from this account
-    // #[account(mut)]
-    #[account(mut)]
-    pub authority: Signer<'info>,
-
-    #[account(mut)]
-    pub signer: Signer<'info>,
-
-    pub system_program: Program<'info, System>,
-
-    #[account(mut, seeds = [], bump)]
-    pub staking_storage: Account<'info, StakingStorage>,
 
     #[account(mut,
         seeds = [b"escrow_vault".as_ref(), mint.key().as_ref()],
